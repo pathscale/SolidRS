@@ -12,7 +12,9 @@
 //!   `options.keyed` *and* from `map.length` (JS function arity). Rust closures
 //!   have no introspectable arity, so the overloads are named:
 //!   [`map_array`] (keyed by identity), [`map_array_by_index`]
-//!   (`keyed: false`), [`map_array_keyed`] (`keyed: item => key`).
+//!   (`keyed: false`), [`map_array_keyed`] (`keyed: item => key`). Each
+//!   allocates exactly what its signature promises: a form that takes an index
+//!   accessor allocates one, because the caller asked for it.
 //! * **The mapped array is `Rc<Vec<M>>`.** Upstream returns the *same JS array*
 //!   when a pass produced no structural change and a *fresh* one otherwise —
 //!   array identity is load-bearing, because it is what stops downstream memos
@@ -229,6 +231,20 @@ where
 /// The callback receives accessors for both the value and the index. Identity
 /// follows the key, so a row whose key is unchanged keeps its mapped value and
 /// its scope even when the value itself changed.
+///
+/// # `key` must be pure
+///
+/// `key` is required to be a pure function of the item: equal items must yield
+/// equal keys, and repeated calls on the same item must agree.
+///
+/// This is a **stronger requirement than upstream states**. Upstream tests
+/// `a === b || compare(key, a, b)` (`map.ts:213`), so reference-identical items
+/// match through the first disjunct even if `key` is impure. This port fuses
+/// the two into `key(a) == key(b)` (see PORTING-QUESTIONS §H3), which is
+/// equivalent *only* while `key` is pure — with an impure `key`, an item that
+/// did not move can fail to match itself and be needlessly remapped and
+/// re-scoped. Upstream never documents the requirement; it is documented here
+/// because this port depends on it.
 pub fn map_array_keyed<Item, M, K>(
     list: impl Fn() -> Vec<Item> + 'static,
     key: impl Fn(&Item) -> K + 'static,
@@ -459,11 +475,43 @@ fn dispose_owner(id: NodeId) {
 
 /// Port of `updateKeyedMap`.
 ///
-/// Follows upstream's staged-commit discipline (#2903): rows are created into
-/// temporaries and removals deferred, and `data` is only written once every
-/// mapper has run. The ordering consequence is preserved — removed rows
-/// dispose *after* the pass's new rows are created. With an infallible mapper
-/// there is no abort path to take; see PORTING-QUESTIONS §H4.
+/// # The staged-commit contract (#2903), and the half of it that is missing
+///
+/// Upstream (`map.ts:108-116`): a map callback can throw `NotReadyError`
+/// mid-pass, and the computed re-runs the whole pass after the source settles.
+/// So every pass **stages** — new rows are built into temporaries, removals are
+/// deferred — and commits to `data` only once every mapper has succeeded. An
+/// aborted pass disposes just the owners *it* created and leaves `items`,
+/// `mappings`, `nodes`, `rows`, `indexes` and `len` exactly as they were, so
+/// the retry diffs against uncorrupted state.
+///
+/// **Ported:** the staging structure, and its observable ordering consequence —
+/// removed rows dispose *after* the pass's new rows are created, because you
+/// cannot destroy state before knowing the pass will land. Pinned by
+/// `tests/map_array.rs::removed_rows_dispose_in_owner_tree_order`.
+///
+/// **Not ported: the abort arm itself.** It is unreachable here, and the three
+/// sites where it belongs are marked `ABORT SITE` below. What a future
+/// implementer needs, so this does not have to be re-derived from upstream:
+///
+/// * **Upstream locations** — `map.ts:182-188` (create fast path),
+///   `map.ts:275-284` (general path, step 2), `map.ts:424-435`
+///   (`updateRepeat`).
+/// * **Reachability condition** — the public mappers are `FnMut(..) -> M` and
+///   cannot fail, so no pass can abort. It becomes reachable with a
+///   `try_map_array` whose mapper returns `Result<M, ReactiveError>`, which is
+///   only meaningful once a suspended read has somewhere to suspend *to*
+///   (loading boundaries, `boundaries.ts` — not yet ported).
+/// * **Observable difference** — with the arm absent, a failing mapper would
+///   leave the owners created earlier in the same pass alive and unreferenced:
+///   their effects would keep running against rows the retry then rebuilds, so
+///   a suspended list would accumulate one leaked scope per row per retry. The
+///   arm's job is *only* that disposal; the state it protects is already
+///   untouched, because nothing is written to `data` before the commit step.
+///
+/// A test that would catch its absence, once reachable: map a list whose
+/// callback suspends on the second row, settle, and assert the live scope count
+/// equals the row count rather than twice it.
 fn update_keyed_map<Item, M, K>(data: &Shared<Item, M, K>) -> Rc<Vec<M>>
 where
     Item: Clone + 'static,
@@ -523,6 +571,9 @@ where
             let mut rows: Vec<NodeId> = Vec::new();
             let mut indexes: Vec<NodeId> = Vec::new();
 
+            // ABORT SITE 1 — upstream `map.ts:182-188`. On a mapper failure
+            // upstream disposes `nodes[0..=j]` and rethrows. Unreachable here:
+            // `make_row` cannot fail. See the contract on this function.
             for (j, item) in new_items.iter().enumerate() {
                 let row_owner = with_rt(|rt| create_owner(rt, None, false));
                 nodes.push(row_owner);
@@ -549,7 +600,7 @@ where
             if has_indexes {
                 d.indexes = indexes;
             }
-            d.items = new_items.clone();
+            d.items = new_items;
             d.len = new_len;
             return;
         }
@@ -592,7 +643,12 @@ where
         // No structural change: keep the same mapped-array identity, so
         // downstream consumers do not re-run at all.
         if start == new_len && old_len == new_len {
-            data.borrow_mut().items = new_items.clone();
+            // Moved, not cloned. `new_items` is dead after this point, and the
+            // unchanged path is the one that must cost nothing: upstream's
+            // `newItems.slice(0)` copies references, so a per-item deep clone
+            // here would be a cost upstream never pays. Pinned by
+            // `tests/map_clone_cost.rs`.
+            data.borrow_mut().items = new_items;
             return;
         }
 
@@ -647,6 +703,12 @@ where
         }
 
         // 2) Create the rows with no survivor, into the temporaries.
+        //
+        // ABORT SITE 2 — upstream `map.ts:275-284`. Upstream accumulates the
+        // owners it created in `created` and, on a mapper failure, disposes
+        // exactly those and rethrows; the retained survivors staged in step 1
+        // are untouched because nothing has been committed yet. Unreachable
+        // here. See the contract on this function.
         {
             let mut j = start as isize;
             while j <= new_end {
@@ -724,7 +786,7 @@ where
                 d.indexes = indexes.into_iter().map(|n| n.expect("committed")).collect();
             }
             d.len = new_len;
-            d.items = new_items.clone();
+            d.items = new_items;
         }
 
         for o in removed {
@@ -944,6 +1006,10 @@ fn update_repeat<M: Clone + 'static>(data: &Rc<RefCell<RepeatData<M>>>) -> Rc<Ve
             }
         }
 
+        // ABORT SITE 3 — upstream `map.ts:424-435`. On failure upstream
+        // disposes every owner it created for an index outside the retained
+        // overlap and rethrows, leaving the overlap rows alive for the retry.
+        // Unreachable here; see the contract on `update_keyed_map`.
         for i in from..to {
             if old_len != 0 && i >= keep_start && i < keep_end {
                 continue;

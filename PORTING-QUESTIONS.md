@@ -558,7 +558,7 @@ notifies. Rust's `PartialEq` says they are equal and the write is a no-op. The
 divergence is observable only through reference identity, which Rust values do
 not have; every ported test passes on both readings.
 
-### H4. The staged-commit abort path is unreachable, and that is stated
+### H4. The staged-commit abort path is unreachable, and recoverable
 
 `updateKeyedMap` and `updateRepeat` stage all work and commit only after every
 mapper succeeded, so a `NotReadyError` thrown mid-pass leaves prior state
@@ -573,6 +573,60 @@ That ordering is observable and is pinned.
 `try_map_array` taking `FnMut(..) -> Result<M, ReactiveError>`, which is only
 meaningful once loading boundaries exist. Deliberately not added on
 speculation — an untested abort path is worse than a documented absent one.
+
+**But the absence is recoverable, which is the part that matters.** Phase 1's
+own finding was that the expensive mistake is deleting machinery for being
+unreachable, because re-deriving where it belonged costs more than carrying it.
+"Unreachable, see #2903" cannot be rebuilt from, so the three sites are marked
+`ABORT SITE 1/2/3` in `src/map.rs`, and the contract block on `update_keyed_map`
+records all three things a future implementer would otherwise re-read upstream
+to recover:
+
+| | |
+|---|---|
+| upstream locations | `map.ts:182-188` (create fast path), `map.ts:275-284` (general path step 2), `map.ts:424-435` (`updateRepeat`) |
+| reachability condition | a mapper returning `Result<M, ReactiveError>`, plus somewhere for a suspended read to suspend *to* (`boundaries.ts`) |
+| observable difference | owners created earlier in the failing pass stay alive and unreferenced — their effects keep running against rows the retry rebuilds, so a suspended list accumulates one leaked scope per row per retry. The arm's only job is that disposal; the state it protects is already safe, because nothing is written to `data` before the commit step |
+| the test that would catch it | map a list whose callback suspends on the second row, settle, assert live scope count equals row count rather than twice it |
+
+### H9. The ignored-test taxonomy
+
+The suite carries 15 `#[ignore]`s. Reported here rather than left to a grep,
+because the count is cited as a result.
+
+By the label each carries:
+
+| label | count |
+|---|---:|
+| `blocked on boundaries.ts` | 5 |
+| `blocked on lanes.ts` | 2 |
+| `phase 2` | 3 |
+| `not representable` | 5 |
+
+**That grouping mixes a label with a blocker, and should not be reported as
+four peer categories.** Reading the reason text, the three `phase 2` entries
+each name a concrete blocker: one needs `lanes.ts`, one needs
+`boundaries.ts` + `lanes.ts`, one needs `optimistic.ts` + `lanes.ts`. Grouped
+by *actual* blocker (a test may have more than one, so these overlap):
+
+| blocker | count |
+|---|---:|
+| `boundaries.ts` | 6 |
+| `lanes.ts` | 5 |
+| `optimistic.ts` | 1 |
+| not representable in Rust | 5 |
+
+Only the last is a closed category: those five cannot be written because the
+value the upstream test constructs — an invalid cleanup return, a non-source
+`refresh` target — is unconstructible in Rust, so the failure mode upstream
+tests at runtime is a compile error here. The other three shrink to zero as
+their modules land.
+
+**One caveat that matters for any count.** Two of the 15 are `describe`-block
+stand-ins, not single tests: `describe_async_compute` represents 40+ upstream
+tests and `describe_is_pending_and_latest` a whole block. So "15 ignored"
+understates the not-ported upstream surface by roughly an order of magnitude,
+and should not be read as "15 upstream tests remain".
 
 ### H5. `$TRACK` has no analogue
 
