@@ -334,8 +334,10 @@ as hook slots (`Queue::notify_hook`, `Node::notify_status`).
 ## E. Test-porting decisions
 
 Ported tests keep their upstream name in a doc comment above the Rust function,
-so a failure maps back to the TypeScript by grep. 132 pass, 19 are `#[ignore]`d
-with a one-line reason.
+so a failure maps back to the TypeScript by grep. As of the `map.ts` port:
+**186 pass, 0 fail, 15 are `#[ignore]`d**, each with a one-line reason naming
+its blocker. The taxonomy of those 15 — and the reason the count understates
+the not-ported upstream surface — is §H9.
 
 ### E1. Upstream tests that rely on eager memo creation
 
@@ -378,6 +380,12 @@ That file is ~2 700 lines, the large majority async. Rather than 40+ near-identi
 `describe` (`describe_async_compute`, `describe_is_pending_and_latest`), with
 individually-named markers kept for tests that are *nearly* in scope (the
 `refresh()` group). Every synchronous test in the file is ported individually.
+
+**Two of the fifteen ignores are therefore describe-level markers, not single
+tests.** `describe_async_compute` stands for 40+ upstream tests and
+`describe_is_pending_and_latest` for a whole block. Any count of "tests not yet
+ported" that reads the fifteen as fifteen upstream tests is wrong by roughly an
+order of magnitude; §H9 states this alongside the taxonomy.
 
 ### E7. Tests added beyond the upstream set
 
