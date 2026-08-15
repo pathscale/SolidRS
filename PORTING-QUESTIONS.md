@@ -47,23 +47,37 @@ Every other write — `effect.rs:283`, `status.rs:68`, `:77`, `:198`, and
 stores `Some` *and* is guarded by `if !errored`, so the path this re-check was
 deferred for does not introduce the case.
 
-### F4's *measurement* — did phase 2 exercise `scheduler.ts:492`? **No.**
+### F4's *measurement* — is `scheduler.ts:492`'s branch exercised? **Yes, and it was unpinned.**
 
 The question itself is still open (below); what is closed is the empirical part.
 
-Method: an `eprintln!` probe on the incomplete-transition branch at
-[`src/scheduler.rs:840`](src/scheduler.rs#L840), then `cargo test`.
+**A previous revision of this entry reported zero probe hits and concluded the
+branch was dead. That was a measurement error**, recorded here because the
+mistake is easy to repeat: `cargo test` captures stderr for *passing* tests, so
+an `eprintln!` probe inside code that only runs in passing tests prints nothing
+to the captured output. The probe was fine; reading its result without
+`--nocapture` was not.
+
+Re-measured, with an `eprintln!` probe on the incomplete-transition branch at
+[`src/scheduler.rs:840`](src/scheduler.rs#L840):
 
 ```
-probe hits, full suite: 0
+cargo test                        -> 0   (wrong: output captured)
+cargo test -- --nocapture         -> 4
 ```
 
-The gate is `transition_complete()` at `src/scheduler.rs:518`, which returns
-`false` only when `t.actions > 0` or an entry survives in `t.async_reporters`.
-Every async test in the suite settles its reporters before the flush that would
-observe them, and none leaves an action in flight across a flush. So phase 2 did
-not bring the path to life, and the ordering question is still answered from
-reading alone.
+Three pre-existing async tests reach it — `a_superseded_flight_does_not_clobber_a_newer_one`,
+`is_pending_is_false_during_the_initial_load`, and
+`should_return_stale_value_when_reading_re_pending_async_computed` — plus the
+characterisation test added for it.
+
+**Executed is not the same as pinned, and that distinction is the finding.**
+Inverting the order — computing `scheduled` *before* the batch is replaced,
+which is the other reading of `scheduler.ts:492` — leaves all 186 pre-existing
+tests passing. Only the new test fails. So the three tests above walk through
+the branch without asserting anything about the behaviour in question, and until
+that test existed an unrelated tidy-up of `global_flush_body` could have
+silently answered an open question.
 
 ---
 
@@ -146,14 +160,18 @@ whether another flush is queued.
   * *a bug* — the read was meant to see the batch as it stood at line 479, and
     replacing first drops a wakeup, stranding work until an unrelated write
     happens to reschedule.
-* **Why we cannot settle it here:** measured above — **zero** tests reach the
-  branch, so the port has no evidence either way.
-* **What would close it locally, short of an upstream answer:** a test that
-  holds an action or an async reporter across a flush boundary. That needs
-  `action.ts` semantics the suite does not currently exercise, but it is a
-  *reachable* target, not an impossible one. It is the single highest-value test
-  this port is missing, and it is the only item on this page that local work
-  could resolve without upstream.
+* **Why we cannot settle it here:** no test can supply intent. The two readings
+  produce the same result in every case the suite constructs, so the port has no
+  evidence either way and would not acquire any by testing harder.
+* **What local work has done, since it cannot answer it:** pinned the current
+  behaviour, in
+  `scheduler::tests::an_incomplete_transition_computes_scheduled_from_the_fresh_batch`.
+  A characterisation test — white-box, and deliberately asserting behaviour
+  nobody has yet argued is *correct*. It forces `transition_complete()` false by
+  setting `actions = 1` directly rather than porting `action.ts` to obtain a
+  test, and it fails if the order is inverted. If F4 comes back "bug", the test
+  changes with the fix; until then the question cannot be answered by accident.
+* **What would still settle it:** upstream.
 
 ### G2 — `SPEC-ASYNC-SEMANTICS.md` A19 disagrees with `read()`
 
