@@ -132,6 +132,11 @@ reads** — two probes in different orders leave different observers in the fiel
   moment a reader is added that cares. Diagnostics and the ownership-tracking
   side of `boundaries.ts` are the natural candidates, so this is likely to be
   someone's problem later.
+* **What that future reader must check, so it trips over this rather than
+  discovering it:** that `_pendingObserver`'s *value* is not load-bearing across
+  two untracked probe reads issued in different orders. If the new reader's
+  correctness depends on which observer the field holds, it depends on probe
+  ordering, and this entry becomes a bug rather than a labelling question.
 * **What would settle it:** whether the order-dependence is intended, or an
   artefact of there being no generation counter to compare against.
 
