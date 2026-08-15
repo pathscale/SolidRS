@@ -760,7 +760,7 @@ pub(crate) fn finalize_pure_queue(
         // `affects()` marks, clears optimistic store layers, sweeps transient
         // store nodes and cleans up lanes here. Every one of those is produced
         // only by an out-of-scope module, so each gate is empty; the call
-        // order is preserved in PORTING-QUESTIONS.md so the later ports slot
+        // order is preserved in PORTING-QUESTIONS.md §F4 so the later ports slot
         // back in at the right points.
     }
 }

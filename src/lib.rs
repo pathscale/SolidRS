@@ -7,7 +7,8 @@
 //! Semantics come from the TypeScript, not from Rust reactive libraries. Where
 //! the TypeScript shape does not survive the translation, the *shape* changed
 //! and the semantics did not — every such decision is recorded in
-//! `PORTING-QUESTIONS.md`, and the scope boundary is in `README.md`.
+//! `porting-reply.md` (PORTING-QUESTIONS.md holds only the still-open items),
+//! and the scope boundary is in `README.md`.
 //!
 //! ## The model in four sentences
 //!

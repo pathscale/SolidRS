@@ -4,7 +4,7 @@
 //! separate port, so those use a signal holding a `Vec` instead. The
 //! substitution is inert for what the tests pin — `repeat` windows on a
 //! *count*, and the row callbacks only read the backing data to assert — and it
-//! is recorded in PORTING-QUESTIONS §H6.
+//! is recorded in `porting-reply.md` §H6.
 //!
 //! Mapped-value identity is compared through a `uid` stamped at map time, for
 //! the reason given at the top of `tests/map_array.rs`.

@@ -106,7 +106,8 @@ Out of scope by the brief; each is a separate port:
 Two names in the brief do not exist upstream at this commit: `batch` (batching
 is structural in 2.0 — writes stage and commit at flush) and `useContext` (the
 package exports `getContext`/`setContext`; `useContext` lives in `solid-js`).
-Details in PORTING-QUESTIONS §A.
+Details in `porting-reply.md` §A (open items only are in PORTING-QUESTIONS.md;
+the full original record is `git show d6798ed:PORTING-QUESTIONS.md`).
 
 ## Design
 
@@ -258,7 +259,7 @@ than porting work:
 
 Two smaller, fully-documented shape changes: cleanup return values and
 `refresh()` targets are statically typed, so three upstream *runtime* errors are
-compile errors here (PORTING-QUESTIONS §B8, §B9).
+compile errors here (`porting-reply.md` §B8, §B9).
 
 ## Verification
 

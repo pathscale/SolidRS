@@ -24,7 +24,8 @@
 //!   structure. The store is a separate port; here `list` is an accessor whose
 //!   read already tracks.
 //!
-//! Every judgement call is recorded in PORTING-QUESTIONS.md §H.
+//! Every judgement call is recorded in `porting-reply.md` §H; PORTING-QUESTIONS.md
+//! now carries only what is still open.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -240,7 +241,7 @@ where
 /// This is a **stronger requirement than upstream states**. Upstream tests
 /// `a === b || compare(key, a, b)` (`map.ts:213`), so reference-identical items
 /// match through the first disjunct even if `key` is impure. This port fuses
-/// the two into `key(a) == key(b)` (see PORTING-QUESTIONS §H3), which is
+/// the two into `key(a) == key(b)` (see `porting-reply.md` §H3), which is
 /// equivalent *only* while `key` is pure — with an impure `key`, an item that
 /// did not move can fail to match itself and be needlessly remapped and
 /// re-scoped. Upstream never documents the requirement; it is documented here

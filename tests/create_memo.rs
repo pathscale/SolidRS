@@ -4,7 +4,7 @@
 //! `latest` and loading boundaries — all out of scope. The synchronous tests
 //! are ported in full; the rest are represented by the `#[ignore]` markers at
 //! the bottom, one per upstream `describe` block, rather than one per test, to
-//! keep the mapping readable. `PORTING-QUESTIONS.md` records the count.
+//! keep the mapping readable. `porting-reply.md` §E6 records the count.
 
 mod common;
 
