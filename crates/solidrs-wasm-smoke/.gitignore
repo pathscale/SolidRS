@@ -1,0 +1,11 @@
+target
+
+# `Cargo.lock` is deliberately NOT ignored here, unlike the library's.
+#
+# This harness exists to reproduce a measurement: that the guest module builds
+# to ~113 KiB and instantiates under wasmi with zero host imports. A
+# measurement whose dependency versions cannot be re-resolved is an anecdote,
+# not a result. Committing the lock is what makes the number checkable later.
+#
+# This is a separate workspace from the repository root, so this is its own
+# lock file rather than the root's.

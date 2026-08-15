@@ -1,0 +1,23 @@
+[package]
+name = "solidrs-wasm-smoke-guest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+# A cdylib, not an rlib. This is the whole point of the exercise: an rlib is
+# object code and never links, so the failures that actually bite on
+# wasm32-unknown-unknown — unsupported std surface, panic handling, anything
+# wanting a syscall — cannot surface. A cdylib links and produces a real
+# module.
+crate-type = ["cdylib"]
+
+[dependencies]
+# Default features off = the shipping configuration (`dev` diagnostics
+# compiled out). `run.sh` also builds with `--features dev` so both
+# configurations are proven to link and instantiate.
+solid_rs = { path = "../../..", default-features = false }
+
+[features]
+default = []
+dev = ["solid_rs/dev"]

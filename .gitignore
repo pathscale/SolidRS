@@ -1,0 +1,12 @@
+/target
+.DS_Store
+
+# The library's own lock stays out. `solid_rs` is a library, so consumers
+# resolve their own versions and a lock committed here would never be the one
+# they build against.
+#
+# Anchored, not bare `Cargo.lock`. A bare pattern matches at every depth, and
+# it was silently swallowing `crates/solidrs-wasm-smoke/Cargo.lock`, which is
+# the one lock in this repository that has to be committed. See that
+# directory's own .gitignore.
+/Cargo.lock

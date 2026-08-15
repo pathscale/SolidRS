@@ -1,0 +1,20 @@
+# A SEPARATE workspace, deliberately.
+#
+# `SolidRS/Cargo.toml` excludes this directory, so `wasmi` — which the host
+# needs to instantiate the guest module — can never appear in
+# `cargo tree -p solid_rs`. That is the structural enforcement of the rule
+# "solid_rs must never depend on wasmi, not even as a dev-dependency":
+# convention rots, workspace boundaries do not.
+[workspace]
+resolver = "2"
+members = ["guest", "host"]
+
+# Profiles live in the workspace root. `panic = "abort"` is not a choice on
+# `wasm32-unknown-unknown` (unwinding is unsupported there); stating it keeps
+# the guest's release profile honest and the module smaller.
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,38 @@
+[package]
+name = "solid_rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "A faithful Rust port of the synchronous core of @solidjs/signals (2.0.0-rc.0)"
+license = "MIT"
+
+# ---------------------------------------------------------------------------
+# HARD RULE: solid_rs must never depend on `wasmi` — not as a dependency, not
+# as a dev-dependency, not transitively.
+#
+# The wasm smoke test needs a wasm *interpreter* to instantiate the guest
+# module, but the library under test must not carry one. Keeping it out by
+# convention would rot, so it is kept out structurally: the smoke test is a
+# SEPARATE workspace, excluded below, and nothing in `cargo tree -p solid_rs`
+# can reach it. `crates/solidrs-wasm-smoke/run.sh` asserts this on every run.
+# ---------------------------------------------------------------------------
+[workspace]
+exclude = ["crates/solidrs-wasm-smoke"]
+
+[dependencies]
+# Generational-index arena. The port brief calls for "slotmap or equivalent";
+# this is the crate it names. Nodes and links live in slotmaps so the reactive
+# graph — which is cyclic by construction — is addressed by key rather than by
+# refcounted pointers.
+slotmap = "1.0"
+
+[features]
+default = ["dev"]
+# Port of the upstream `__DEV__` build flag: diagnostics, owner names, and the
+# PRIMITIVE_IN_FORBIDDEN_SCOPE / REACTIVE_WRITE_IN_OWNED_SCOPE guards.
+dev = []
+# Port of upstream `__TEST__`: the per-write tracking sets and per-flush
+# quiescence sweep in `invariants.rs`. Upstream gates these separately from
+# `__DEV__` because they are too expensive for shipped dev builds (5-21% on
+# their bench suite); we keep that split.
+test_invariants = ["dev"]

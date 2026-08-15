@@ -1,0 +1,10 @@
+[package]
+name = "solidrs-wasm-smoke-host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# NOTE: this dependency lives here and ONLY here. `solid_rs` must never
+# acquire it — see the rule in SolidRS/Cargo.toml.
+wasmi = "1.1"
