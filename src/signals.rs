@@ -348,6 +348,30 @@ pub mod debug {
         })
     }
 
+    /// Total nodes in an owner subtree, counting the owner itself.
+    ///
+    /// Exists for the upstream regression test that pins disposed row owners
+    /// not accumulating in their parent's sibling chain.
+    pub fn owner_subtree_size(id: NodeId) -> usize {
+        with_rt(|rt| {
+            let nodes = rt.nodes();
+            fn walk(nodes: &crate::runtime::Nodes, id: NodeId) -> usize {
+                let Some(n) = nodes.get(id) else { return 0 };
+                let mut count = 1;
+                let mut child = n.first_child.get();
+                while let Some(c) = child {
+                    count += walk(nodes, c);
+                    child = match nodes.get(c) {
+                        Some(cn) => cn.next_sibling.get(),
+                        None => None,
+                    };
+                }
+                count
+            }
+            walk(&nodes, id)
+        })
+    }
+
     /// How many subscribers does this node have?
     pub fn subscriber_count(id: NodeId) -> usize {
         with_rt(|rt| {

@@ -66,6 +66,7 @@ The whole synchronous reactive engine, not a reimplementation of its surface.
 | the `Promise` / `AsyncIterable` substrate | `src/async_source.rs` |
 | `core/async.ts` suspension machinery | `src/asyncrt.rs` |
 | `core/verdict.ts` (core ladder) | `src/verdict.rs` |
+| `map.ts` (`mapArray`, `repeat`) | `src/map.rs` |
 
 Public API: `create_signal`, `create_signal_with`, `create_memo`,
 `create_memo_with`, `try_create_memo_with`, `create_computed_signal`
@@ -74,6 +75,7 @@ Public API: `create_signal`, `create_signal_with`, `create_memo`,
 `create_reaction`, `create_root`, `create_root_with`, `untrack`, `flush`,
 `flush_with`, `on_cleanup`, `on_dispose`, `get_owner`, `get_observer`,
 `run_with_owner`, `create_context` / `get_context` / `set_context`,
+`map_array` / `map_array_by_index` / `map_array_keyed`, `repeat`,
 `Memo::refresh`, `reset_error_halt`, `get_next_child_id`, `peek_next_child_id`,
 and the `host` and `debug` modules.
 
@@ -96,7 +98,7 @@ Out of scope by the brief; each is a separate port:
   ported.
 - The parts of `core/verdict.ts` that need the above: mark coverage, the
   firewall deferral, the override branch, the lane check in `latest`.
-- `affects.ts`, `map.ts` (`mapArray`, `repeat`), `store/**` (the proxy store).
+- `affects.ts`, `store/**` (the proxy store).
 - `core/dev.ts` diagnostics beyond messages, `core/external.ts`, snapshot
   capture, and `createTrackedEffect` / `onSettled` (leaf-owner primitives whose
   contract is defined against the async settle).
@@ -261,7 +263,7 @@ compile errors here (PORTING-QUESTIONS §B8, §B9).
 ## Verification
 
 ```bash
-cargo test                              # 158 tests incl. doc tests
+cargo test                              # 183 tests incl. doc tests
 cargo test --features test_invariants   # + the INV-* self-consistency checks
 cargo clippy --all-targets              # clean
 ```
@@ -281,7 +283,9 @@ every test, so a Rust failure greps straight back to the TypeScript):
 | `context.test.ts` | `tests/context.rs` | 7 | 0 |
 | `createReaction.test.ts` | `tests/create_reaction.rs` | 4 | 1 |
 | `untrack.test.ts` | `tests/untrack.rs` | 3 | 0 |
-| `autodispose-contract.test.ts` | `tests/autodispose_contract.rs` | 2 | 4 |
+| `autodispose-contract.test.ts` | `tests/autodispose_contract.rs` | 6 | 0 |
+| `mapArray.test.ts` | `tests/map_array.rs` | 12 | 0 |
+| `repeat.test.ts` | `tests/repeat.rs` | 11 | 0 |
 | — (smoke) | `tests/smoke.rs` | 4 | 0 |
 
 A test that cannot be ported is `#[ignore]`d with a one-line reason, never

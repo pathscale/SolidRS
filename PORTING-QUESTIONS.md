@@ -482,3 +482,135 @@ modelling something wrongly. Detail in CHANGELOG-PHASE2.md; summarised:
 Everything else phase 1 kept as inert scaffolding was shaped correctly and
 needed no rework — which is the useful signal about how clean the sync/async
 split was.
+
+---
+
+## H. `map.ts` — `map_array` and `repeat`
+
+**An upstream oracle exists**, and it is the primary source for this port:
+`tests/mapArray.test.ts` (313 lines, 7 tests) and `tests/repeat.test.ts`
+(421 lines, 11 tests). All 18 are ported, keeping their upstream names. Six
+further tests are added for coverage the upstream file does not carry; each is
+labelled "Not upstream" in place, so the two kinds are never confused.
+
+Two sibling upstream files are **not** ported and are named here rather than
+silently skipped:
+
+- `tests/mapArray-notready-safety.test.ts` (579 lines) — the `NotReadyError`
+  mid-pass abort/retry contract (#2903). Needs a fallible mapper *and* loading
+  boundaries; see H4.
+- `tests/maparray-store-nonkeyed.test.ts` (75 lines) — store proxies, a
+  separate port.
+
+### H1. Four overloads become three named functions
+
+Upstream picks behaviour from `options.keyed` **and** from `map.length` — JS
+function arity (`map.ts:73`, `const indexes = map.length > 1`). Rust closures
+have no introspectable arity.
+
+**Chosen:** three functions, one per keying mode — `map_array` (keyed by
+identity), `map_array_by_index` (`keyed: false`), `map_array_keyed`
+(`keyed: item => key`) — each taking the exact callback shape its overload
+specifies.
+
+**Consequence, deliberate:** the arity check is upstream's way of *not
+allocating index signals* when the callback ignores the index. Here the
+index-taking forms always allocate one. This is a per-row allocation, not a
+semantic difference: a callback that ignores its index observes nothing
+different. Recorded rather than worked around, because a future
+`map_array_values` (item only, no index) would close it.
+
+### H2. The mapped array is `Rc<Vec<M>>`, compared by pointer
+
+Upstream returns the **same JS array** when a pass produced no structural
+change (`map.ts:234-237`) and a fresh one otherwise — with the comment "new
+identity for downstream change propagation" (`map.ts:287`). Array identity is
+load-bearing: it is what stops downstream memos re-running.
+
+**Chosen:** the memo's value is `Rc<Vec<M>>` and its comparator is
+`Rc::ptr_eq`. That is JS array identity exactly. Pinned by the added test
+`an_unchanged_pass_keeps_the_mapped_array_identity`.
+
+**Bound this forces:** `M: Clone`. Retained rows must be copied from the old
+array into the new one, and they cannot be moved out of an `Rc` the consumer
+may still hold. A caller whose mapped value is expensive should map to
+`Rc<T>`; the clone is then a refcount bump. (`Vec<Rc<M>>` internally would
+avoid the bound but leaks `Rc` into every callback signature.)
+
+### H3. `a === b || compare(key, a, b)` is fused into one predicate
+
+Upstream's prefix/suffix scans test
+`this._items[i] === newItems[j] || (this._rows && compare(this._key, …))`
+(`map.ts:213-214`, `226-227`).
+
+**Analysis:** a key match subsumes reference equality — identical values yield
+identical keys — so the disjunction is equivalent to a single predicate chosen
+per mode: identity → `a == b`; keyed-by-fn → `key(a) == key(b)`; by-index →
+`true` (upstream's `compare(undefined, …)` returns `true`, `map.ts:451`).
+
+**Chosen:** one `same_position` closure built at construction. This is not only
+tidier — it avoids demanding `PartialEq` on `Item` in keyed-by-function mode,
+where upstream needs no such capability from the item type.
+
+**Row-signal equality is structural, not referential.** Upstream's row signals
+use the default `isEqual` (`===`), so writing a *distinct but equal* object
+notifies. Rust's `PartialEq` says they are equal and the write is a no-op. The
+divergence is observable only through reference identity, which Rust values do
+not have; every ported test passes on both readings.
+
+### H4. The staged-commit abort path is unreachable, and that is stated
+
+`updateKeyedMap` and `updateRepeat` stage all work and commit only after every
+mapper succeeded, so a `NotReadyError` thrown mid-pass leaves prior state
+uncorrupted for the post-settle retry (#2903, `map.ts:108-116`).
+
+**Ported:** the staging structure and — importantly — its *ordering*
+consequence: removed rows dispose **after** the pass's new rows are created.
+That ordering is observable and is pinned.
+
+**Not reachable:** the abort arm itself. The public mappers are infallible
+(`FnMut(..) -> M`), so no pass can fail. Making it reachable needs a
+`try_map_array` taking `FnMut(..) -> Result<M, ReactiveError>`, which is only
+meaningful once loading boundaries exist. Deliberately not added on
+speculation — an untested abort path is worse than a documented absent one.
+
+### H5. `$TRACK` has no analogue
+
+`updateKeyedMap` reads `(newItems as any)[$TRACK]` for "top level tracking"
+(`map.ts:120`) — subscribing to a store proxy's *structure*, since a proxy's
+array reads would otherwise not register a dependency on length/order.
+
+**Chosen:** omitted. Here `list` is a plain accessor; reading it tracks
+normally. The store port must reintroduce it.
+
+### H6. Three `repeat` tests source data from `createStore`
+
+`should compute keyed map`, `should notify observer`, and `should retain
+instances when only offset changes` use `createStore`.
+
+**Chosen:** a signal holding a `Vec`, with the row callbacks reading through it.
+The substitution is inert for what these tests pin — `repeat` windows on a
+*count*, and the store is only the backing data the assertions read — and the
+row callbacks are lazily evaluated outside any tracking scope, so the store's
+fine-grained tracking never enters the result. Marked in the file header.
+
+### H7. `Maybe<readonly Item[]>` collapses to `Vec<Item>`
+
+Upstream's list accessor may return `null`/`undefined`/`false`, all of which
+`this._list() || []` turns into empty (`map.ts:118`).
+
+**Chosen:** `impl Fn() -> Vec<Item>`; a caller with nothing to show returns
+`Vec::new()`. Rust has no falsy union to model.
+
+### H8. `Item: Eq + Hash` for the identity and by-index modes
+
+`newIndices` is a `Map` keyed by `this._key ? this._key(item) : item`
+(`map.ts:251`). A JS `Map` accepts any value as a key; a Rust `HashMap` needs
+`Eq + Hash`.
+
+**Chosen:** required on `Item` for `map_array` and `map_array_by_index` (where
+the key *is* the item), and on `K` only for `map_array_keyed`. A caller whose
+item is not hashable — a struct containing `f64`, say — uses `map_array_keyed`
+with a key they can hash. Noted because by-index mode does not *semantically*
+need the bound (its matching is positional); it inherits it from sharing one
+algorithm with the keyed modes, which is the faithful choice.

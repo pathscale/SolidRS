@@ -66,6 +66,7 @@ mod error;
 mod graph;
 mod heap;
 mod invariants;
+mod map;
 mod node;
 mod owner;
 mod runtime;
@@ -88,6 +89,10 @@ pub use crate::error::{
 pub use crate::node::{Disposable, NodeId};
 pub use crate::owner::{get_next_child_id, peek_next_child_id, IdError};
 pub use crate::scheduler::{flush, flush_with, reset_error_halt};
+pub use crate::map::{
+    map_array, map_array_by_index, map_array_by_index_with, map_array_keyed,
+    map_array_keyed_with, map_array_with, repeat, repeat_with, MapOptions, RepeatOptions,
+};
 pub use crate::signals::debug;
 pub use crate::signals::{
     create_async_memo, create_async_memo_with, create_computed_signal, create_computed_signal_with, create_effect, create_effect_with,
