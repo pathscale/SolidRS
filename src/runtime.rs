@@ -264,7 +264,10 @@ impl Runtime {
     // a long-running app needs handle liveness; see README.md ("Deviations")
     // for the two designs that would provide it.
 
-    /// Number of live nodes. Diagnostic hook, used by the reclamation test.
+    /// Number of nodes **ever created**, which is the arena's length.
+    ///
+    /// Not a census of what is alive: slots are never reclaimed, so disposing a
+    /// subtree does not lower this. See README.md ("Deviations").
     pub fn node_count(&self) -> usize {
         self.nodes.borrow().len()
     }

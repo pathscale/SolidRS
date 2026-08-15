@@ -247,9 +247,23 @@ none, and two facts make an automatic collector unsound here:
    still name a node.
 
 A reclamation pass was written and then removed rather than shipped subtly
-wrong. Consequence: a long-running graph that repeatedly mounts and unmounts
-subtrees grows. Either of these would fix it, and both are follow-on work rather
-than porting work:
+wrong.
+
+**What this costs an embedder.** The arena grows with the number of nodes
+**ever created**, not the number alive. Disposing a subtree does not give its
+slots back, so a document that mounts and unmounts — a list that refilters, a
+route that remounts, anything driven by a stream of updates — grows without
+bound for as long as it is open. Memory tracks the total churn, not the size of
+what is on screen.
+
+The case that finds this is a single document held open for days, which is
+exactly the case a test suite does not have: every test builds a graph, asserts,
+and exits. No amount of green tests says anything about it. If you are
+embedding, this is the number to watch, and `debug::node_count()` is how to
+watch it.
+
+Either of these would fix it, and both are follow-on work rather than porting
+work:
 
 - make handles `Clone`-with-`Drop` (refcount the *handle*, not the graph — edges
   stay generational keys, so cycles remain collectable), or

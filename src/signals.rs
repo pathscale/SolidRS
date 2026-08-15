@@ -330,12 +330,20 @@ impl Owner {
 pub mod debug {
     use super::*;
 
-    /// Number of live nodes in the arena.
+    /// Number of nodes **ever created**, which is the arena's length.
+    ///
+    /// Disposing a subtree does not lower this — arena slots are never
+    /// reclaimed, so this counts total churn rather than what is currently
+    /// alive. That makes it the number to watch when embedding: a document held
+    /// open across many mount/unmount cycles grows it without bound. The
+    /// reasoning, and the two designs that would fix it, are in README.md
+    /// ("Deviations").
     pub fn node_count() -> usize {
         with_rt(|rt| rt.node_count())
     }
 
-    /// Number of live dependency edges.
+    /// Number of dependency edges ever created. Same caveat as
+    /// [`node_count`]: the link arena is not reclaimed either.
     pub fn link_count() -> usize {
         with_rt(|rt| rt.link_count())
     }
@@ -1048,7 +1056,13 @@ pub fn get_observer() -> Option<Owner> {
     })
 }
 
-/// Access the runtime for a diagnostic read. Used by the reclamation tests.
+/// Number of nodes ever created. **The name is a misnomer** and is kept only
+/// because it is public: there is no live count, because arena slots are never
+/// reclaimed. Identical to [`debug::node_count`], which is documented and is
+/// the one to use.
+///
+/// It was named for a reclamation pass that was removed rather than shipped
+/// subtly wrong — see README.md ("Deviations").
 pub fn live_node_count() -> usize {
     with_rt(|rt: &Runtime| rt.node_count())
 }
