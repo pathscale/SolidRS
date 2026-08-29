@@ -269,7 +269,10 @@ work:
   stay generational keys, so cycles remain collectable), or
 - scope the arena, so a `create_root` subtree's slots are released with the root.
 
-`debug::node_count()` / `debug::link_count()` expose arena occupancy meanwhile.
+`debug::node_count()` exposes cumulative node-slot occupancy; dependency links
+are reclaimed during disposal, and `debug::link_count()` reports their current
+occupancy. The `arena_churn` integration test pins the distinction: 1,000
+create/flush/dispose cycles retain 4,000 node slots and zero dependency links.
 
 Two smaller, fully-documented shape changes: cleanup return values and
 `refresh()` targets are statically typed, so three upstream *runtime* errors are
@@ -278,7 +281,7 @@ compile errors here (`porting-reply.md` §B8, §B9).
 ## Verification
 
 ```bash
-cargo test                              # 183 tests incl. doc tests
+cargo test                              # 172 executable + 16 doc tests pass; 15 ignored
 cargo test --features test_invariants   # + the INV-* self-consistency checks
 cargo clippy --all-targets              # clean
 ```

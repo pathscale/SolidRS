@@ -342,8 +342,11 @@ pub mod debug {
         with_rt(|rt| rt.node_count())
     }
 
-    /// Number of dependency edges ever created. Same caveat as
-    /// [`node_count`]: the link arena is not reclaimed either.
+    /// Number of live dependency edges.
+    ///
+    /// Unlike node slots, dependency links are removed during disposal. This
+    /// counter therefore returns to its baseline after a fully detached root
+    /// is disposed.
     pub fn link_count() -> usize {
         with_rt(|rt| rt.link_count())
     }
