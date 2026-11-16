@@ -10,3 +10,4 @@
 # the one lock in this repository that has to be committed. See that
 # directory's own .gitignore.
 /Cargo.lock
+Cargo.lock
