@@ -66,6 +66,7 @@ The whole synchronous reactive engine, not a reimplementation of its surface.
 | the `Promise` / `AsyncIterable` substrate | `src/async_source.rs` |
 | `core/async.ts` suspension machinery | `src/asyncrt.rs` |
 | `core/verdict.ts` (core ladder) | `src/verdict.rs` |
+| `map.ts` (`mapArray`, `repeat`) | `src/map.rs` |
 
 Public API: `create_signal`, `create_signal_with`, `create_memo`,
 `create_memo_with`, `try_create_memo_with`, `create_computed_signal`
@@ -74,6 +75,7 @@ Public API: `create_signal`, `create_signal_with`, `create_memo`,
 `create_reaction`, `create_root`, `create_root_with`, `untrack`, `flush`,
 `flush_with`, `on_cleanup`, `on_dispose`, `get_owner`, `get_observer`,
 `run_with_owner`, `create_context` / `get_context` / `set_context`,
+`map_array` / `map_array_by_index` / `map_array_keyed`, `repeat`,
 `Memo::refresh`, `reset_error_halt`, `get_next_child_id`, `peek_next_child_id`,
 and the `host` and `debug` modules.
 
@@ -96,7 +98,7 @@ Out of scope by the brief; each is a separate port:
   ported.
 - The parts of `core/verdict.ts` that need the above: mark coverage, the
   firewall deferral, the override branch, the lane check in `latest`.
-- `affects.ts`, `map.ts` (`mapArray`, `repeat`), `store/**` (the proxy store).
+- `affects.ts`, `store/**` (the proxy store).
 - `core/dev.ts` diagnostics beyond messages, `core/external.ts`, snapshot
   capture, and `createTrackedEffect` / `onSettled` (leaf-owner primitives whose
   contract is defined against the async settle).
@@ -104,7 +106,8 @@ Out of scope by the brief; each is a separate port:
 Two names in the brief do not exist upstream at this commit: `batch` (batching
 is structural in 2.0 — writes stage and commit at flush) and `useContext` (the
 package exports `getContext`/`setContext`; `useContext` lives in `solid-js`).
-Details in PORTING-QUESTIONS §A.
+Details in `porting-reply.md` §A (open items only are in PORTING-QUESTIONS.md;
+the full original record is `git show d6798ed:PORTING-QUESTIONS.md`).
 
 ## Design
 
@@ -244,24 +247,41 @@ none, and two facts make an automatic collector unsound here:
    still name a node.
 
 A reclamation pass was written and then removed rather than shipped subtly
-wrong. Consequence: a long-running graph that repeatedly mounts and unmounts
-subtrees grows. Either of these would fix it, and both are follow-on work rather
-than porting work:
+wrong.
+
+**What this costs an embedder.** The arena grows with the number of nodes
+**ever created**, not the number alive. Disposing a subtree does not give its
+slots back, so a document that mounts and unmounts — a list that refilters, a
+route that remounts, anything driven by a stream of updates — grows without
+bound for as long as it is open. Memory tracks the total churn, not the size of
+what is on screen.
+
+The case that finds this is a single document held open for days, which is
+exactly the case a test suite does not have: every test builds a graph, asserts,
+and exits. No amount of green tests says anything about it. If you are
+embedding, this is the number to watch, and `debug::node_count()` is how to
+watch it.
+
+Either of these would fix it, and both are follow-on work rather than porting
+work:
 
 - make handles `Clone`-with-`Drop` (refcount the *handle*, not the graph — edges
   stay generational keys, so cycles remain collectable), or
 - scope the arena, so a `create_root` subtree's slots are released with the root.
 
-`debug::node_count()` / `debug::link_count()` expose arena occupancy meanwhile.
+`debug::node_count()` exposes cumulative node-slot occupancy; dependency links
+are reclaimed during disposal, and `debug::link_count()` reports their current
+occupancy. The `arena_churn` integration test pins the distinction: 1,000
+create/flush/dispose cycles retain 4,000 node slots and zero dependency links.
 
 Two smaller, fully-documented shape changes: cleanup return values and
 `refresh()` targets are statically typed, so three upstream *runtime* errors are
-compile errors here (PORTING-QUESTIONS §B8, §B9).
+compile errors here (`porting-reply.md` §B8, §B9).
 
 ## Verification
 
 ```bash
-cargo test                              # 158 tests incl. doc tests
+cargo test                              # 172 executable + 16 doc tests pass; 15 ignored
 cargo test --features test_invariants   # + the INV-* self-consistency checks
 cargo clippy --all-targets              # clean
 ```
@@ -281,7 +301,9 @@ every test, so a Rust failure greps straight back to the TypeScript):
 | `context.test.ts` | `tests/context.rs` | 7 | 0 |
 | `createReaction.test.ts` | `tests/create_reaction.rs` | 4 | 1 |
 | `untrack.test.ts` | `tests/untrack.rs` | 3 | 0 |
-| `autodispose-contract.test.ts` | `tests/autodispose_contract.rs` | 2 | 4 |
+| `autodispose-contract.test.ts` | `tests/autodispose_contract.rs` | 6 | 0 |
+| `mapArray.test.ts` | `tests/map_array.rs` | 12 | 0 |
+| `repeat.test.ts` | `tests/repeat.rs` | 11 | 0 |
 | — (smoke) | `tests/smoke.rs` | 4 | 0 |
 
 A test that cannot be ported is `#[ignore]`d with a one-line reason, never

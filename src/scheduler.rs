@@ -760,7 +760,7 @@ pub(crate) fn finalize_pure_queue(
         // `affects()` marks, clears optimistic store layers, sweeps transient
         // store nodes and cleans up lanes here. Every one of those is produced
         // only by an out-of-scope module, so each gate is empty; the call
-        // order is preserved in PORTING-QUESTIONS.md so the later ports slot
+        // order is preserved in PORTING-QUESTIONS.md §F4 so the later ports slot
         // back in at the right points.
     }
 }
@@ -1072,4 +1072,74 @@ pub(crate) fn subscribers_of(nodes: &Nodes, links: &crate::runtime::Links, id: N
         cur = l.next_sub.get();
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::node::NodeId;
+    use crate::runtime::with_rt;
+
+    /// Pins how `scheduled` is computed when a transition cannot complete.
+    ///
+    /// # This is a characterisation test, not a correctness argument
+    ///
+    /// It pins the order the port currently has, which is upstream's order at
+    /// `scheduler.ts:492`: the batch is replaced *first*, and `scheduled` is
+    /// then computed from the fresh one. Whether that is intended is
+    /// PORTING-QUESTIONS §F4 and is upstream's to answer — no test can supply
+    /// intent. If F4 comes back "bug", this test changes with the fix, and that
+    /// is the point: until then an unrelated tidy-up of `global_flush_body`
+    /// cannot silently answer the question.
+    ///
+    /// # Why it is white-box
+    ///
+    /// Reaching the branch needs `transition_complete` to be false, which needs
+    /// an in-flight action or a parked async reporter. `action.ts` is not
+    /// ported, and porting it to obtain a test would be the tail wagging the
+    /// dog. `actions` is crate-internal state, so the test sets it directly.
+    /// When `action.ts` lands, the end-to-end version replaces this and this
+    /// one goes away.
+    #[test]
+    fn an_incomplete_transition_computes_scheduled_from_the_fresh_batch() {
+        with_rt(|rt| {
+            let active = rt
+                .transitions
+                .borrow_mut()
+                .insert(Transition::new(rt.clock.get()));
+            {
+                let ts = rt.transitions.borrow();
+                let t = ts.get(active).expect("just inserted");
+                // One in-flight action is the cheapest way to make
+                // `transition_complete` false. A parked async reporter is the
+                // other, and reaches the same branch.
+                t.actions.set(1);
+                // Pending work on the *old* batch. This is the whole point: if
+                // `scheduled` were computed before the replacement it would see
+                // this and come out true.
+                t.pending_nodes.borrow_mut().push(NodeId::default());
+            }
+            rt.active_transition.set(Some(active));
+            rt.batch.set(active);
+            rt.live_transitions.borrow_mut().push(active);
+            rt.scheduled.set(true);
+
+            let clock_before = rt.clock.get();
+            global_flush(rt);
+
+            // The branch ran.
+            assert_eq!(rt.active_transition.get(), None);
+            assert_eq!(rt.clock.get(), clock_before + 1);
+            assert_ne!(rt.batch.get(), active, "a fresh batch was installed");
+
+            // And this is the F4 behaviour itself: false, because the fresh
+            // batch is empty, even though the transition it replaced had a
+            // pending node. The other reading of `scheduler.ts:492` gives true.
+            assert!(
+                !rt.scheduled.get(),
+                "`scheduled` is computed from the batch as it stands *after* the \
+                 replacement, not from the one that carried the pending work"
+            );
+        });
+    }
 }

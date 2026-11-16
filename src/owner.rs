@@ -98,7 +98,7 @@ pub(crate) fn dispose_children(rt: &Runtime, id: NodeId, self_: bool, zombie: bo
             // Upstream also snaps `isPending`/`latest` companions here so a
             // disposed source cannot leave a verdict latched true forever
             // (INV-9). The verdict layer is out of scope; the call site is
-            // noted in PORTING-QUESTIONS.md.
+            // noted in `porting-reply.md`.
         }
         flags
     };

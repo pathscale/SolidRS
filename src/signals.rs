@@ -330,12 +330,23 @@ impl Owner {
 pub mod debug {
     use super::*;
 
-    /// Number of live nodes in the arena.
+    /// Number of nodes **ever created**, which is the arena's length.
+    ///
+    /// Disposing a subtree does not lower this — arena slots are never
+    /// reclaimed, so this counts total churn rather than what is currently
+    /// alive. That makes it the number to watch when embedding: a document held
+    /// open across many mount/unmount cycles grows it without bound. The
+    /// reasoning, and the two designs that would fix it, are in README.md
+    /// ("Deviations").
     pub fn node_count() -> usize {
         with_rt(|rt| rt.node_count())
     }
 
     /// Number of live dependency edges.
+    ///
+    /// Unlike node slots, dependency links are removed during disposal. This
+    /// counter therefore returns to its baseline after a fully detached root
+    /// is disposed.
     pub fn link_count() -> usize {
         with_rt(|rt| rt.link_count())
     }
@@ -345,6 +356,30 @@ pub mod debug {
         with_rt(|rt| {
             let nodes = rt.nodes();
             nodes.get(id).map(|n| n.deps.get().is_some()).unwrap_or(false)
+        })
+    }
+
+    /// Total nodes in an owner subtree, counting the owner itself.
+    ///
+    /// Exists for the upstream regression test that pins disposed row owners
+    /// not accumulating in their parent's sibling chain.
+    pub fn owner_subtree_size(id: NodeId) -> usize {
+        with_rt(|rt| {
+            let nodes = rt.nodes();
+            fn walk(nodes: &crate::runtime::Nodes, id: NodeId) -> usize {
+                let Some(n) = nodes.get(id) else { return 0 };
+                let mut count = 1;
+                let mut child = n.first_child.get();
+                while let Some(c) = child {
+                    count += walk(nodes, c);
+                    child = match nodes.get(c) {
+                        Some(cn) => cn.next_sibling.get(),
+                        None => None,
+                    };
+                }
+                count
+            }
+            walk(&nodes, id)
         })
     }
 
@@ -1024,7 +1059,13 @@ pub fn get_observer() -> Option<Owner> {
     })
 }
 
-/// Access the runtime for a diagnostic read. Used by the reclamation tests.
+/// Number of nodes ever created. **The name is a misnomer** and is kept only
+/// because it is public: there is no live count, because arena slots are never
+/// reclaimed. Identical to [`debug::node_count`], which is documented and is
+/// the one to use.
+///
+/// It was named for a reclamation pass that was removed rather than shipped
+/// subtly wrong — see README.md ("Deviations").
 pub fn live_node_count() -> usize {
     with_rt(|rt: &Runtime| rt.node_count())
 }
